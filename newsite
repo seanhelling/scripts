@@ -1,0 +1,201 @@
+#!/bin/bash
+
+# ┌──────────────────────────────────────────────────────────────────────────────┐
+# │ MIT License                                                                  │
+# │                                                                              │
+# │ Copyright (c) 2021 Sean Helling <me@seanhelling.com>                         │
+# │                                                                              │
+# │ Permission is hereby granted, free of charge, to any person obtaining a      │
+# │ copy                                                                         │
+# │ of this software and associated documentation files (the "Software"), to     │
+# │ deal                                                                         │
+# │ in the Software without restriction, including without limitation the        │
+# │ rights                                                                       │
+# │ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell    │
+# │ copies of the Software, and to permit persons to whom the Software is        │
+# │ furnished to do so, subject to the following conditions:                     │
+# │                                                                              │
+# │ The above copyright notice and this permission notice shall be included in   │
+# │ all                                                                          │
+# │ copies or substantial portions of the Software.                              │
+# │                                                                              │
+# │ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR   │
+# │ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,     │
+# │ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE  │
+# │ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER       │
+# │ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING      │
+# │ FROM,                                                                        │
+# │ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN    │
+# │ THE                                                                          │
+# │ SOFTWARE.                                                                    │
+# └──────────────────────────────────────────────────────────────────────────────┘
+
+# ┌──────────────────────────────────────────────────────────────────────────────┐
+# │ Apache newsite configurator                                                  │
+# │                                                                              │
+# │ This script does the following to create and enable a new Apache             │
+# │ VirtualHost:                                                                 │
+# │ - Creates directories                                                        │
+# │ - Creates configuration files                                                │
+# │ - Sets permissions                                                           │
+# │ - Optionally enables and configures SSL encryption via Let's Encrypt         │
+# │ - Uses Apache's script hooks to enable the VirtualHost                       │
+# └──────────────────────────────────────────────────────────────────────────────┘
+
+# SETTINGS GO HERE
+
+BASEROOTDIR="/var/www"
+WWWUSER="www-data"
+APACHE_CONFIG_DIR="/etc/apache2/sites-available"
+LETSENCRYPT_ENABLE_REDIRECT=0 # 0 = redirect, 1 = no redirect, anything else = ask
+
+# DO NOT CHANGE ANYTHING BELOW THIS LINE
+
+# Assign original ROOTDIR, leaving configured value for comparison
+ROOTDIR=$BASEROOTDIR
+
+usage () {
+	echo -e "\e[1mnewsite\e[0m"
+	echo -e "Usage: $0 -d <domain> [-s] [-r <directory>]"
+	echo -e "Options:"
+	echo -e "    -d: specify domain name (required)"
+	echo -e "    -s: set up SSL via letsencrypt (optional)"
+	echo -e "    -r: set up in a different directory from the default [\e[1m$ROOTDIR\e[0m] (optional)";
+	echo -e "    -v: show version information"
+}
+
+# set initial blank values
+DOMAIN=""
+DOMAINSTRING=""
+ALIASES=""
+
+while getopts "svd:r:" arg; do
+	case $arg in
+		# Perform letsencrypt SSL setup
+		s) 
+			DO_SSL="true"
+			;;
+		# The domain name itself
+		d) 
+			if [[ -z $DOMAIN ]]; then
+				DOMAIN=${OPTARG}
+			else
+				ALIASES="${ALIASES}${OPTARG} "
+			fi
+			DOMAINSTRING="${DOMAINSTRING}-d ${OPTARG} "
+			;;
+		# If specified, change ROOTDIR
+		r)
+			if [[ ${OPTARG} == /* ]]; then
+				ROOTDIR="${OPTARG}";
+			else
+				ROOTDIR="$ROOTDIR/${OPTARG}";
+			fi
+			;;
+		# Help/instructions
+		h | *)
+			usage
+			exit 0
+			;;
+	esac
+done
+
+# I'll leave this here in case getopts sleeps through its alarm
+if [[ $# -eq 0 ]]; then usage; exit 0; fi
+
+# If we specify some flags but not a domain, explain usage, and exit with an error
+if [[ $DOMAIN == "" ]]; then
+	echo -e "Fatal: you must specify a domain.\n"
+	usage
+	exit 1
+fi
+
+# Create web directory if it doesn't already exist
+DIRTARGET="$ROOTDIR/$DOMAIN"
+HTMLTARGET="$DIRTARGET/html"
+if [[ -d "$DIRTARGET" ]]; then
+	# If it does, warn the user and then move on
+	echo "Warning: Directory $DIRTARGET already exists"	
+else 
+	mkdir -p $DIRTARGET
+	echo "Created directory $DIRTARGET"
+	mkdir -p $HTMLTARGET
+	echo "Created directory $HTMLTARGET"
+fi
+
+# targetpage specification
+TARGETPAGE=$HTMLTARGET/index.html
+if [[ -f $TARGETPAGE ]]; then
+	echo "Warning: Target index.html page already exists"
+else
+	echo -e \
+	"<!DOCTYPE HTML>
+	<html>
+		<body style=\"background-color:black;color:white;font-family:sans-serif\">
+			<div style=\"align-items: center;text-align: center;margin-top:4rem;\">
+				<h1>It works!</h1>
+			</div>
+		</body>
+	</html>" > $TARGETPAGE
+fi
+
+
+# touch index.html in case it doesn't exist
+touch $HTMLTARGET/index.html
+
+# chown recursively, regardless
+
+if [[ $ROOTDIR != $BASEROOTDIR ]]; then
+	# we are NOT using the default ROOTDIR, make sure we chown both
+	chown $WWWUSER:$WWWUSER $ROOTDIR
+	chown -R $WWWUSER:$WWWUSER $DIRTARGET
+else 
+	# we are using the default ROOTDIR, we can probably safely chown only the new directory
+	chown -R $WWWUSER:$WWWUSER $DIRTARGET
+fi
+
+# set sticky bit on directories
+find $DIRTARGET -type d -exec chmod 2775 {} \;
+
+# allow group write on everything
+find $DIRTARGET -type f -exec chmod 0664 {} \;
+
+# Create and populate Apache configuration file
+CONFTARGET="$APACHE_CONFIG_DIR/$DOMAIN.conf"
+if [[ -e $CONFTARGET && -s $CONFTARGET ]]; then
+	# If the file already exists, warn the user and move on
+	echo "Warning: Configuration file $CONFTARGET already exists"
+else
+	# If we have any aliases
+	if [[ -n $ALIASES ]]; then ALIASLINE="ServerAlias ${ALIASES}\n"; else ALIASLINE=""; fi
+	echo -e \
+	"<VirtualHost *:80>
+		ServerAdmin webmaster@$DOMAIN
+		ServerName ${DOMAIN}
+		${ALIASLINE}
+		DocumentRoot $HTMLTARGET
+		<Directory $HTMLTARGET>
+			Options -Indexes +FollowSymLinks
+			AllowOverride all
+			Require all granted
+		</Directory>
+		ErrorLog \${APACHE_LOG_DIR}/$DOMAIN-error.log
+		CustomLog \${APACHE_LOG_DIR}/$DOMAIN-access.log combined
+	</VirtualHost>" >> $CONFTARGET
+fi
+
+# Enable the site in Apache
+a2ensite $DOMAIN.conf > /dev/null 2>&1
+echo -e "Domain $DOMAIN enabled."
+service apache2 reload
+
+# Check if we want SSL set up, and if so, do it
+if [[ $DO_SSL == "true" ]]; then
+	if [[ $LETSENCRYPT_ENABLE_REDIRECT -eq 0 ]]; then
+		certbot -n --redirect --apache $DOMAINSTRING
+	elif [[ $LETSENCRYPT_ENABLE_REDIRECT - eq 1 ]]; then
+		certbot -n --no-redirect --apache $DOMAINSTRING
+	else
+		certbot -n --apache $DOMAINSTRING
+	fi
+fi

@@ -1,0 +1,116 @@
+#!/bin/bash
+
+# ┌──────────────────────────────────────────────────────────────────────────────┐
+# │ MIT License                                                                  │
+# │                                                                              │
+# │ Copyright (c) 2021 Sean Helling <me@seanhelling.com>                         │
+# │                                                                              │
+# │ Permission is hereby granted, free of charge, to any person obtaining a      │
+# │ copy                                                                         │
+# │ of this software and associated documentation files (the "Software"), to     │
+# │ deal                                                                         │
+# │ in the Software without restriction, including without limitation the        │
+# │ rights                                                                       │
+# │ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell    │
+# │ copies of the Software, and to permit persons to whom the Software is        │
+# │ furnished to do so, subject to the following conditions:                     │
+# │                                                                              │
+# │ The above copyright notice and this permission notice shall be included in   │
+# │ all                                                                          │
+# │ copies or substantial portions of the Software.                              │
+# │                                                                              │
+# │ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR   │
+# │ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,     │
+# │ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE  │
+# │ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER       │
+# │ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING      │
+# │ FROM,                                                                        │
+# │ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN    │
+# │ THE                                                                          │
+# │ SOFTWARE.                                                                    │
+# └──────────────────────────────────────────────────────────────────────────────┘
+
+# ┌──────────────────────────────────────────────────────────────────────────────┐
+# │ Logfile monitor                                                              │
+# │                                                                              │
+# │ This script opens and monitors a predefined set of logfiles (specifically    │
+# │ designed with development on PHP/Apache in mind) to allow the developer to   │
+# │ easily access realtime feedback on a web server with several VirtualHosts.   │
+# └──────────────────────────────────────────────────────────────────────────────┘
+
+markInterval=300 # default 300 seconds (5 minutes)
+
+aggregateLogFiles=""
+
+usage() {
+    echo -e "What?  \e[1mLogfile monitor\e[0m"
+    echo -e "When?  [\e[1mlogs\e[0m] v0.2.0"
+    echo -e "Who?   \e[1mSean Helling\e[0m <\e[4mme@seanhelling.com\e[0m>"
+    echo -e "Where? \e[1;4mhttps://seanhelling.com/code/logs\e[0m"
+    echo -e "How?   \e[1mLike this:\e[0m"
+    echo -e " logs [-s example.com] [-a] [-i interval]"
+    echo -e "  -a --alt --alternate	 	Alternate view"
+    echo -e "  -i --interval 			Specify the marker interval in seconds (0 for none)."
+    echo -e "                             \e[1m ** Using no markers may allow an SSH connection to time out. **\e[0m"
+    echo -e "  -s --site 			Select the site to monitor."
+    echo -e "  -h --help 			Show this help message."
+}
+
+while [[ "$1" =~ ^- && ! "$1" == "--" ]]; do case $1 in
+    -a | --alt | --alternate)
+    alt=1
+    ;;
+    -i | --interval )
+    shift; markInterval=$1
+    ;;
+    -s | --site )
+    shift; site=$1
+    ;;
+    -h | --help )
+    usage
+    exit 0
+    ;;
+esac; shift; done
+if [[ "$1" == '--' ]]; then shift; fi
+
+# Define the site log files
+if [[ -n $site ]]; then
+    # if a site is specified, use its name
+	phpErrorFile="/var/log/php/$site-error.log"
+	apacheErrorFile="/var/log/apache2/$site-error.log"
+	apacheAccessFile="/var/log/apache2/$site-access.log"
+else
+    # otherwise, load up some generics
+	phpErrorFile="/var/log/php/error.log"
+	apacheErrorFile="/var/log/apache2/error.log"
+	apacheAccessFile="/var/log/apache2/access.log"
+fi
+
+# Make sure the files exist
+# If one does not, substitute /dev/null since multitail will fail to run
+#   if you pass it a nonexistent file (TODO: this, a better way)
+# If all do not, just fail out to avoid looking at several views on /dev/null
+if [[ ! -e $phpErrorFile && ! -e $apacheErrorFile && ! -e $apacheAccessFile ]]; then
+    echo "No log files to monitor for '$site'."
+    exit 1
+else
+    if sudo test ! -e $phpErrorFile; then       phpErrorFile="/dev/null";       fi
+    if sudo test ! -e $apacheErrorFile; then    apacheErrorFile="/dev/null";    fi
+    if sudo test ! -e $apacheAccessFile; then   apacheAccessFile="/dev/null";   fi
+fi
+
+# "alternate" view
+if [[ $alt -eq 1 ]]; then
+	sudo multitail -s 2 -sn 2 --mark-interval $markInterval \
+	-i $apacheAccessFile \
+	-i $apacheErrorFile \
+	-i $phpErrorFile
+elif [[ $specify -eq 1 ]]; then
+	sudo multitail -s 2 -sn 2 --mark-interval $markInterval \
+	$aggregateLogFiles
+else
+	sudo multitail --mark-interval $markInterval\
+	-i $phpErrorFile \
+	-i $apacheAccessFile \
+	-i $apacheErrorFile
+fi
