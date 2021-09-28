@@ -1,0 +1,8 @@
+#!/bin/bash
+define mod(x,y) { 
+  tmp   = scale
+  scale = 0
+  ret   = x%y
+  scale = tmp
+  return ret
+}

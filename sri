@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# Sean Helling <sean@sfx.dev>
+# Generates a Subresource Integrity hash for a specified file.
+
+TARGET=$1
+
+URL_REGEX='(https?|ftp|file)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]'
+
+if [[ -f $TARGET ]]; then
+    INTEGRITY=$(openssl dgst -sha384 -binary $TARGET | openssl base64 -A)
+    echo -e "$TARGET | sha384-$INTEGRITY"
+    exit 0
+elif [[ -d $TARGET ]]; then
+    strlength=$(expr $(longest $TARGET))
+    remlength=$(expr $(tput cols) - $strlength - 11)
+    for x in $TARGET/*; do
+        if [[ -f $x ]]; then
+            INTEGRITY=$(openssl dgst -sha384 -binary $x | openssl base64 -A)
+            printf " %-${strlength}s | sha384-%-${remlength}s\n" $(basename $x) $INTEGRITY
+            # echo -e "$x | sha384-$INTEGRITY"
+        fi
+    done
+    exit 0
+elif [[ $TARGET =~ $URL_REGEX ]]; then
+    TEMP_FILE=$(mktemp)
+    curl -sf $TARGET > $TEMP_FILE
+        if [[ $? -eq 22 ]]; then
+            echo "Fatal: invalid URL."
+            exit 2
+        fi
+    INTEGRITY=$(openssl dgst -sha384 -binary $TEMP_FILE | openssl base64 -A)
+    echo -e "$TARGET | sha384-$INTEGRITY"
+    rm $TEMP_FILE
+    exit 0
+elif [[ -z $1 ]]; then
+    echo "Fatal: No target specified."
+    exit 127
+else
+    echo "Fatal: Not a file."
+    exit 1
+fi

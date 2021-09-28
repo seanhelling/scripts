@@ -1,0 +1,7 @@
+#!/bin/bash
+
+u() {
+    echo -en "\U$(printf "%0*s" 4 "$1")"
+}
+
+alias unicode="u"

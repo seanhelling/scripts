@@ -1,0 +1,13 @@
+#!/bin/bash
+divider() {
+	printf "=%.0s" $(eval echo "{1.."$(tput cols)"}")
+}
+
+divider_with() {
+	if [[ -z ${2} ]]; then LEN=4; else LEN=${2}; fi
+	PRE=$(printf "=%.0s" $(eval echo "{1.."${LEN}"}"))
+	STRING="${PRE} ${1} "
+	COLS=$(bc -l <<< "$(tput cols) - ${#STRING}")
+	DIVIDER="$(printf "=%.0s" $(eval echo "{1.."${COLS}"}"))"
+	echo "${STRING}${DIVIDER}"
+}

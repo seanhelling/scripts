@@ -1,0 +1,38 @@
+#!/bin/bash
+source colorslib
+source divider
+alias bc="bc -l ~/.bin/.bcrc"
+
+prop() {
+    IFS=''
+    DATA="${1}"
+    FIELD="${2}"
+    IFS=$' \t\n'
+    RESULT="$(echo -e "${DATA}" | grep -m1 "${FIELD}" | tr -s " " | cut -d':' -f 2 | xargs)"
+    echo "${RESULT}"
+}
+
+line() {
+    printf "%10b: %b\n" "$1" "$2"
+}
+
+CPUINFO="$(lscpu)"
+ARCHITECTURE="$(prop "${CPUINFO}" "Architecture")"
+MODELNAME="$(prop "${CPUINFO}" "Model name")"
+SOCKETS="$(prop "${CPUINFO}" "Socket(s)")"
+CPS="$(prop "${CPUINFO}" "Core(s) per socket")"
+THREADS="$(prop "${CPUINFO}" "CPU(s)")"
+SPEED="$(printf "%.0f" $(prop "${CPUINFO}" "CPU MHz"))"
+
+# echo "${CPUINFO}"
+
+# echo $(prop "${CPUINFO}" "Model name")
+
+# echo "${CPUINFO}"
+echo ""
+divider_with "Processor" 4
+line "Arch" "${ARCHITECTURE}"
+line "CPU" "${MODELNAME} (${SOCKETS}s/${CPS}c/${THREADS}t)"
+line "${C_LBLUE}Speed${C_RESET}" "${SPEED} MHz"
+echo ""
+divider_with "Memory" 4
